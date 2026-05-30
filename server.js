@@ -99,6 +99,7 @@ app.post("/api/login", async (req, res) => {
     if (!existingUser) {
       return res.status(400).json({
         msg: "Username not found",
+
       });
     }
 
@@ -122,6 +123,7 @@ app.post("/api/login", async (req, res) => {
   } catch (err) {
     res.status(500).json({
       msg: "Server Error",
+      error: err.message
     });
   }
 });
