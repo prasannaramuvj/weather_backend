@@ -7,131 +7,207 @@ const User = require("./user");
 
 require("dotenv").config();
 
-console.log(process.env.API_KEY);
-
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+// Middleware
 app.use(cors());
-
 app.use(express.json());
 
+// MongoDB Connection
 mongoose
   .connect(process.env.MONGO_URI)
-  .then(() => console.log("✅ Connected to MongoDB Atlas"))
+  .then(() => {
+    console.log("✅ Connected to MongoDB Atlas");
+  })
   .catch((err) => {
-    console.error("❌ MongoDB connection error:", err.message);
-    console.error("Make sure your MongoDB Atlas IP is whitelisted");
+    console.error("❌ MongoDB Connection Error:", err.message);
   });
 
-//-------------------------------------------------------------------------------------//
+mongoose.connection.on("connected", () => {
+  console.log("📦 MongoDB Connected");
+});
+
+mongoose.connection.on("error", (err) => {
+  console.log("MongoDB Error:", err);
+});
+
+
+// ===================================================
+// REGISTER API
+// ===================================================
 
 app.post("/api/register", async (req, res) => {
   try {
     const { username, password } = req.body;
 
-    // const existsuser = users.find((usernames)=>usernames.username == username)
-    const existsuser = await User.findOne({ username });
+    if (!username || !password) {
+      return res.status(400).json({
+        msg: "Username and Password are required",
+      });
+    }
 
-    if (existsuser) {
-      return res.status(400).json({ msg: "already username exists" });
+    const existingUser = await User.findOne({
+      username,
+    });
+
+    if (existingUser) {
+      return res.status(400).json({
+        msg: "Username already exists",
+      });
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // const newuser = {
-    //   username,
-    //   password:hashedPassword
-    // }
+    const newUser = new User({
+      username,
+      password: hashedPassword,
+    });
 
-    // users.push(newuser)
-    const newUser = new User({ username, password: hashedPassword });
     await newUser.save();
 
-    return res.status(201).json({ msg: "created successfully" });
+    res.status(201).json({
+      msg: "User registered successfully",
+    });
   } catch (err) {
-    return res.status(500).json({ msg: "errro ocuured", err: err.message });
+    res.status(500).json({
+      msg: "Server Error",
+      error: err.message,
+    });
   }
 });
 
-//------------------------------------------------------------------------------------------------------//
+
+// ===================================================
+// LOGIN API
+// ===================================================
+
 app.post("/api/login", async (req, res) => {
   try {
     const { username, password } = req.body;
 
-    // find user
-    // const existsuser = users.find(
-    //   (usernames) => usernames.username == username
-    // )
-    const existsuser = await User.findOne({ username });
-    // username check
-    if (!existsuser) {
+    if (!username || !password) {
       return res.status(400).json({
-        msg: "username not found",
+        msg: "Username and Password are required",
       });
     }
 
-    // compare password
-    const isMatch = await bcrypt.compare(password, existsuser.password);
+    const existingUser = await User.findOne({
+      username,
+    });
+
+    if (!existingUser) {
+      return res.status(400).json({
+        msg: "Username not found",
+      });
+    }
+
+    const isMatch = await bcrypt.compare(
+      password,
+      existingUser.password
+    );
 
     if (!isMatch) {
       return res.status(400).json({
-        error: "Invalid password!",
+        msg: "Invalid password",
       });
     }
 
-    // success login
     res.status(200).json({
-      message: "Login successful!",
+      msg: "Login Successful",
       user: {
-        username: existsuser.username,
+        username: existingUser.username,
       },
     });
-  } catch (error) {
+  } catch (err) {
     res.status(500).json({
-      error: "Server error during login.",
+      msg: "Server Error",
     });
   }
 });
 
-// --------------------------------------------------------------------------------------------//
-app.get("/api/weather", async (req, res) => {
-  const cityname = req.query.city;
 
-  if (!cityname) {
-    return res.status(400).json({ msg: "enter the city name" });
-  }
+// ===================================================
+// CURRENT WEATHER API
+// ===================================================
+
+app.get("/api/weather", async (req, res) => {
   try {
-    const url = `https://api.openweathermap.org/data/2.5/weather?q=${cityname}&appid=${process.env.API_KEY}&units=metric`;
-    console.log(url);
-    const response = await axios.get(url);
-    return res.json(response.data);
+    const city = req.query.city;
+
+    if (!city) {
+      return res.status(400).json({
+        msg: "Enter city name",
+      });
+    }
+
+    const response = await axios.get(
+      `https://api.openweathermap.org/data/2.5/weather?q=${city}&appid=${process.env.API_KEY}&units=metric`
+    );
+
+    res.json(response.data);
   } catch (err) {
     console.error(
-      "Weather API error:",
-      err.response?.status,
-      err.response?.data || err.message,
+      "Weather Error:",
+      err.response?.data || err.message
     );
-    const statusCode = err.response?.status || 500;
-    const message =
-      err.response?.data?.message ||
-      err.response?.data?.cod ||
-      err.message ||
-      "Failed to fetch weather";
-    res.status(statusCode).json({ msg: message });
+
+    res.status(err.response?.status || 500).json({
+      msg:
+        err.response?.data?.message ||
+        "Failed to fetch weather",
+    });
   }
 });
 
+
+// ===================================================
+// 5 DAY FORECAST API
+// ===================================================
+
 app.get("/api/forecast", async (req, res) => {
-  const city = req.query.city;
+  try {
+    const city = req.query.city;
 
-  const response = await axios.get(
-    `https://api.openweathermap.org/data/2.5/forecast?q=${city}&units=metric&appid=${process.env.API_KEY}`
-  );
+    if (!city) {
+      return res.status(400).json({
+        msg: "Enter city name",
+      });
+    }
 
-  res.json(response.data);
+    const response = await axios.get(
+      `https://api.openweathermap.org/data/2.5/forecast?q=${city}&appid=${process.env.API_KEY}&units=metric`
+    );
+
+    res.json(response.data);
+  } catch (err) {
+    console.error(
+      "Forecast Error:",
+      err.response?.data || err.message
+    );
+
+    res.status(err.response?.status || 500).json({
+      msg:
+        err.response?.data?.message ||
+        "Failed to fetch forecast",
+    });
+  }
 });
 
+
+// ===================================================
+// TEST ROUTE
+// ===================================================
+
+app.get("/", (req, res) => {
+  res.send("Weather Backend Running 🚀");
+});
+
+
+// ===================================================
+// SERVER START
+// ===================================================
+
 app.listen(PORT, () => {
-  console.log(`server is running on port ${PORT}`);
+  console.log(`🚀 Server running on port ${PORT}`);
 });
